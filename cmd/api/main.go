@@ -1,8 +1,14 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
+	"log"
+	"net/http"
+	"time"
 
+	"cobo.leon.net/internal/data"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -15,7 +21,8 @@ type config struct {
 
 type application struct {
 	config *config
-	models *models.Models
+	models data.Models
+	logger *log.Logger
 }
 
 func main() {
@@ -27,15 +34,37 @@ func main() {
 	client := initRedisClient()
 	defer client.Close()
 
-	app := newApp(&cfg, client)
-	err := app.run()
+	app := &application{
+		config: &cfg,
+		models: data.NewModels(client),
+		logger: log.New(log.Writer(), "INFO: ", log.Ldate|log.Ltime),
+	}
+
+	srv := http.Server{
+		Addr:         fmt.Sprintf(":%d", cfg.port),
+		Handler:      app.routes(),
+		IdleTimeout:  time.Minute,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+	}
+
+	fmt.Printf("Starting server on %s", srv.Addr)
+	err := srv.ListenAndServe()
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
 func initRedisClient() *redis.Client {
-	return redis.NewClient(&redis.Options{
+	client := redis.NewClient(&redis.Options{
 		Addr:     "localhost:6379",
 		DB:       0,
 		Password: "",
 	})
+	_, err := client.Ping(context.Background()).Result()
+	if err != nil {
+		log.Fatalf("Failed to connect to Redis: %v", err)
+	}
+	return client
 
 }
