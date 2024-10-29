@@ -31,7 +31,7 @@ func NewModels(db *redis.Client) Models {
 type OrderRequest struct {
 	ID       string    `json:"id"`
 	Side     OrderSide `json:"side"`
-	Type     OrderType `json:"type"`
+	Type     OrderType `json:"order_type"`
 	Price    float64   `json:"price,omitempty"`
 	Quantity float64   `json:"quantity"`
 }

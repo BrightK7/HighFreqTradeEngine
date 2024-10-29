@@ -9,7 +9,7 @@ import (
 	"cobo.leon.net/internal/data"
 )
 
-func (app *application) createOrder(w http.ResponseWriter, r *http.Request) {
+func (app *application) createOrderHandler(w http.ResponseWriter, r *http.Request) {
 	var orderReq data.OrderRequest
 	err := json.NewDecoder(r.Body).Decode(&orderReq)
 	if err != nil {
@@ -25,8 +25,11 @@ func (app *application) createOrder(w http.ResponseWriter, r *http.Request) {
 		ID:        orderReq.ID,
 		Price:     orderReq.Price,
 		Quantity:  orderReq.Quantity,
+		Side:      orderReq.Side,
 		Timestamp: time.Now().Unix(),
 	}
+
+	app.logger.Printf("Order received: %v", order)
 
 	if orderReq.Type == data.LimitOrder {
 		err = app.models.Orders.AddLimitOrder(order)

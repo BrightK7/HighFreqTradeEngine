@@ -13,13 +13,13 @@ type OrderSide string
 type OrderType string
 
 const (
-	Buy  OrderSide = "buy"
-	Sell OrderSide = "sell"
+	Buy  OrderSide = "BUY"
+	Sell OrderSide = "SELL"
 )
 
 const (
-	LimitOrder  OrderType = "limit"
-	MarketOrder OrderType = "market"
+	LimitOrder  OrderType = "LIMIT"
+	MarketOrder OrderType = "MARKET"
 )
 
 type Order struct {
@@ -46,12 +46,14 @@ func (m OrderModel) AddLimitOrder(order *Order) error {
 	// save order into order book
 	var orderBookKey string
 	var score float64
-	if order.Side == Buy {
+	if order.Side == "BUY" {
 		orderBookKey = "order_book:buy"
 		score = -order.Price
-	} else if order.Side == Sell {
+	} else if order.Side == "SELL" {
 		orderBookKey = "order_book:sell"
 		score = order.Price
+	} else {
+		return fmt.Errorf("invalid order side: %s", order.Side)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

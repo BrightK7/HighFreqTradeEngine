@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"os"
 
 	"cobo.leon.net/internal/data"
 	"github.com/redis/go-redis/v9"
@@ -37,7 +38,7 @@ func main() {
 	app := &application{
 		config: &cfg,
 		models: data.NewModels(client),
-		logger: log.New(log.Writer(), "INFO: ", log.Ldate|log.Ltime),
+		logger: log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime),
 	}
 
 	srv := http.Server{
