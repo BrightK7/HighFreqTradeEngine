@@ -39,13 +39,13 @@ func (app *application) createOrderHandler(w http.ResponseWriter, r *http.Reques
 		}
 	} else if orderReq.Type == data.MarketOrder {
 		if orderReq.Side == data.Buy {
-			err = app.models.Orders.MatchBuyMarketOrder(*order)
+			err = app.models.Orders.MatchMarketOrder(order)
 			if err != nil {
 				app.errorJSON(w, err)
 				return
 			}
 		} else if orderReq.Side == data.Sell {
-			err = app.models.Orders.MatchSellMarketOrder(*order)
+			err = app.models.Orders.MatchMarketOrder(order)
 			if err != nil {
 				app.errorJSON(w, err)
 				return

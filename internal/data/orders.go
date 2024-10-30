@@ -68,7 +68,7 @@ func (m OrderModel) GetOrder(id string) (Order, error) {
 	return Order{}, nil
 }
 
-func (m OrderModel) UpdateOrder(order Order) error {
+func (m OrderModel) UpdateOrder(order *Order) error {
 	return nil
 }
 
@@ -76,7 +76,7 @@ func (m OrderModel) Delete(id string) error {
 	return nil
 }
 
-func (m OrderModel) matchMarketOrder(order Order) error {
+func (m OrderModel) MatchMarketOrder(order *Order) error {
 	script := getMatchOrderLuaScript()
 
 	var orderBookKey string
@@ -86,6 +86,8 @@ func (m OrderModel) matchMarketOrder(order Order) error {
 	} else if order.Side == Sell {
 		// buy order matches with sell order
 		orderBookKey = "order_book:buy"
+	} else {
+		return fmt.Errorf("invalid order side: %s", order.Side)
 	}
 
 	orderData, err := json.Marshal(order)
@@ -139,72 +141,77 @@ func getAddOrderLuaScript() string {
 
 func getMatchOrderLuaScript() string {
 	return `
-		local orderBookKey = KEYS[1]
-		local orderData = ARGV[1]
+    -- KEYS[1]: orderBookKey
+    -- ARGV[1]: orderData (JSON string of the order)
 
-		-- retrieve order data
-		local order = cjson.decode(orderData)
-		local orderQuantity = order["quantity"]
-		local orderSide = order["side"]
+    local orderBookKey = KEYS[1]
+    local orderData = ARGV[1]
 
-		local function getBestOrder(orderBookKey, orderSide)
-			if orderSide == "BUY" then
-				return redis.call("ZRANGE", orderBookKey, 0, 0)[1]
-			elseif orderSide == "SELL" then
-				return redis.call("ZREVRANGE", orderBookKey, 0, 0)[1]
-			end
-		end
+    -- resolve order data
+    local order = cjson.decode(orderData)
+    local orderQuantity = order["quantity"]
+    local orderSide = order["side"]
 
-		local function processTrade(order, bestOrder, tradeQuantity)
-			order["quantity"] = order["quantity"] - tradeQuantity
-			bestOrder["quantity"] = bestOrder["quantity"] - tradeQuantity
+    -- local function: get the best order ID
+    local function getBestOrderID(orderBookKey, orderSide)
+        return redis.call("ZRANGE", orderBookKey, 0, 0)[1]
+    end
 
-			local trade = {
-				buy_order_id = orderSide == "BUY" and order["id"] or bestOrder["id"],
-				sell_order_id = orderSide == "SELL" and order["id"] or bestOrder["id"],
-				price = bestOrder["price"],
-				quantity = tradeQuantity,
-				timestamp = redis.call("TIME")[1]
-			}
-			local tradeKey = "trade:" .. trade["timestamp"]
-			redis.call("HSET", tradeKey, "data", cjson.encode(trade))
-		end
+    -- local function: save trade and update orders
+    local function processTrade(order, bestOrder, tradeQuantity)
+        order["quantity"] = order["quantity"] - tradeQuantity
+        bestOrder["quantity"] = bestOrder["quantity"] - tradeQuantity
 
-		local function updateBestOrder(orderBookKey, bestOrderId, bestOrder)
-			if bestOrder["quantity"] <= 0 then
-				redis.call("ZREM", orderBookKey, bestOrderId)
-				redis.call("DEL", "order:" .. bestOrderId)
-			else
-				local updateBestOrder = cjson.encode(bestOrder)
-				redis.call("HSET", "order:" .. bestOrderId, "data", updateBestOrder)
-			end
-		end
+        local trade = {
+            buy_order_id = orderSide == "BUY" and order["id"] or bestOrder["id"],
+            sell_order_id = orderSide == "SELL" and order["id"] or bestOrder["id"],
+            price = bestOrder["price"],
+            quantity = tradeQuantity,
+            timestamp = redis.call("TIME")[1]
+        }
+        local tradeData = cjson.encode(trade)
+        redis.call("RPUSH", "trades", tradeData)
+    end
 
-		while orderQuantity > 0 do
-			local bestOrderId = getBestOrderID(orderBookKey, orderSide)
+    -- local function: update the best order
+    local function updateBestOrder(orderBookKey, bestOrderID, bestOrder)
+        if bestOrder["quantity"] <= 0 then
+            redis.call("ZREM", orderBookKey, bestOrderID)
+            redis.call("DEL", "order:" .. bestOrderID)
+        else
+            local updatedBestOrderData = cjson.encode(bestOrder)
+            redis.call("HSET", "order:" .. bestOrderID, "data", updatedBestOrderData)
+        end
+    end
 
-			if not bestOrderId then
-				break
-			end
+    -- match orders
+    while orderQuantity > 0 do
+        local bestOrderID = getBestOrderID(orderBookKey, orderSide)
 
-			local bestOrderKey = "order:" .. bestOrderId
-			local bestOrderData = redis.call("HGET", bestOrderKey, "data")
-			if not bestOrderData then
-				redis.call("ZREM", orderBookKey, bestOrderId)
-				break
-			end
+        if not bestOrderID then
+            break
+        end
 
-			local bestOrder = cjson.decode(bestOrderData)
-			local tradeQuantity = math.min(orderQuantity, bestOrder["quantity"])
+        local bestOrderKey = "order:" .. bestOrderID
+        local bestOrderData = redis.call("HGET", bestOrderKey, "data")
+        if not bestOrderData then
+            redis.call("ZREM", orderBookKey, bestOrderID)
+            break
+        end
+        local bestOrder = cjson.decode(bestOrderData)
 
-			processTrade(order, bestOrder, tradeQuantity)
+        local tradeQuantity = math.min(orderQuantity, bestOrder["quantity"])
 
-			updateBestOrder(orderBookKey, bestOrderId, bestOrder)
+        processTrade(order, bestOrder, tradeQuantity)
 
-			orderQuantity = orderQuantity - tradeQuantity
-			if orderQuantity <= 0 then
-				break
-			end
-		end
-	`
+        updateBestOrder(orderBookKey, bestOrderID, bestOrder)
+
+        orderQuantity = orderQuantity - tradeQuantity
+
+        if orderQuantity <= 0 then
+            break
+        end
+    end
+    return "OK"
+    `
 }

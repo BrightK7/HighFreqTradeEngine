@@ -14,11 +14,9 @@ var (
 type Models struct {
 	Orders interface {
 		AddLimitOrder(order *Order) error
-		MatchBuyMarketOrder(order Order) error
-		matchMarketOrder(order Order) error
-		MatchSellMarketOrder(order Order) error
+		MatchMarketOrder(order *Order) error
 		GetOrder(id string) (Order, error)
-		UpdateOrder(order Order) error
+		UpdateOrder(order *Order) error
 	}
 }
 
